@@ -1,0 +1,185 @@
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.launch
+
+// --- 1. MODEL LAYER (Room Enabled) ---
+
+// @Entity(tableName = "products") // Room Annotation
+data class Product(
+    // @PrimaryKey 
+    val id: Int,
+    val name: String,
+    val price: Double,
+    val imageUrl: String,
+    val lastUpdated: Long = System.currentTimeMillis()
+)
+
+sealed class SearchUiState {
+    object Idle : SearchUiState()
+    object Loading : SearchUiState()
+    data class Success(val products: List<Product>, val isOffline: Boolean = false) : SearchUiState()
+    data class Error(val message: String) : SearchUiState()
+}
+
+/**
+ * MOCK ROOM DAO (Data Access Object)
+ * In a real app, Room would generate this.
+ */
+class ProductDao {
+    private val memoryDb = mutableListOf<Product>()
+
+    fun getProductsByQuery(query: String): Flow<List<Product>> = flow {
+        // Observe local DB
+        emit(memoryDb.filter { it.name.contains(query, ignoreCase = true) })
+    }
+
+    suspend fun insertProducts(products: List<Product>) {
+        // Filter out duplicates and save
+        val ids = products.map { it.id }
+        memoryDb.removeAll { it.id in ids }
+        memoryDb.addAll(products)
+    }
+}
+
+/**
+ * REPOSITORY WITH OFFLINE SUPPORT
+ * Pattern: Single Source of Truth
+ */
+class ProductSearchRepository(private val dao: ProductDao = ProductDao()) {
+
+    /**
+     * This follows the "Offline-First" approach.
+     * 1. Emit current local data.
+     * 2. Try to fetch fresh data from network.
+     * 3. Update local DB with fresh data.
+     * 4. The UI (observing the DB) will update automatically.
+     */
+    fun getSearchResult(query: String): Flow<SearchUiState> = flow {
+        emit(SearchUiState.Loading)
+
+        // 1. Grab local data first so the user sees something immediately
+        val localData = dao.getProductsByQuery(query).first()
+        if (localData.isNotEmpty()) {
+            emit(SearchUiState.Success(localData, isOffline = true))
+        }
+
+        try {
+            // 2. Simulate API Call
+            delay(1500) 
+            val networkResults = List(20) { i ->
+                Product(i + (query.hashCode()), "Product $query $i", 29.99, "")
+            }
+
+            // 3. Save to Local DB (SSOT)
+            dao.insertProducts(networkResults)
+
+            // 4. Emit fresh data from DB
+            val freshData = dao.getProductsByQuery(query).first()
+            emit(SearchUiState.Success(freshData, isOffline = false))
+
+        } catch (e: Exception) {
+            // If network fails but we have local data, we already emitted Success(isOffline=true)
+            if (localData.isEmpty()) {
+                emit(SearchUiState.Error("No connection and no cached data."))
+            }
+        }
+    }
+}
+
+// --- 2. VIEWMODEL LAYER ---
+
+@OptIn(FlowPreview::class)
+class ProductSearchViewModel(
+    private val repository: ProductSearchRepository = ProductSearchRepository()
+) : ViewModel() {
+
+    private val _searchQuery = MutableStateFlow("")
+    val searchQuery = _searchQuery.asStateFlow()
+
+    val uiState: StateFlow<SearchUiState> = _searchQuery
+        .debounce(500L)
+        .distinctUntilChanged()
+        .flatMapLatest { query ->
+            if (query.isBlank()) flowOf(SearchUiState.Idle)
+            else repository.getSearchResult(query)
+        }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = SearchUiState.Idle
+        )
+
+    fun onQueryChanged(newQuery: String) {
+        _searchQuery.value = newQuery
+    }
+}
+
+// --- 3. VIEW LAYER (UI) ---
+
+@Composable
+fun ProductSearchScreen(viewModel: ProductSearchViewModel = androidx.lifecycle.viewmodel.compose.viewModel()) {
+    val query by viewModel.searchQuery.collectAsState()
+    val state by viewModel.uiState.collectAsState()
+
+    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+        OutlinedTextField(
+            value = query,
+            onValueChange = { viewModel.onQueryChanged(it) },
+            label = { Text("Search Products") },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true
+        )
+
+        if (state is SearchUiState.Success && (state as SearchUiState.Success).isOffline) {
+            Text(
+                "Offline Mode: Showing cached results",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.secondary,
+                modifier = Modifier.padding(top = 4.dp)
+            )
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        Box(modifier = Modifier.fillMaxSize()) {
+            when (val currentState = state) {
+                is SearchUiState.Idle -> Text("Start typing...", modifier = Modifier.align(androidx.compose.ui.Alignment.Center))
+                is SearchUiState.Loading -> CircularProgressIndicator(modifier = Modifier.align(androidx.compose.ui.Alignment.Center))
+                is SearchUiState.Success -> ProductList(currentState.products)
+                is SearchUiState.Error -> Text(currentState.message, color = MaterialTheme.colorScheme.error)
+            }
+        }
+    }
+}
+
+@Composable
+fun ProductList(products: List<Product>) {
+    LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        items(products) { ProductItem(it) }
+    }
+}
+
+@Composable
+fun ProductItem(product: Product) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Row(modifier = Modifier.padding(16.dp)) {
+            Box(modifier = Modifier.size(64.dp).background(MaterialTheme.colorScheme.secondaryContainer))
+            Spacer(modifier = Modifier.width(16.dp))
+            Column {
+                Text(text = product.name, style = MaterialTheme.typography.titleMedium)
+                Text(text = "$${product.price}", style = MaterialTheme.typography.bodyMedium)
+            }
+        }
+    }
+}
