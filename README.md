@@ -65,7 +65,7 @@ graph TD
     VM -->|Injected via Koin| RepoImpl
     
     %% Data Flow
-    RepoImpl -->|Fetches (CIO Engine)| API
+    RepoImpl -->|Fetches CIO Engine| API
     RepoImpl -->|Deserializes to| Model
     VM -->|Receives| Model
 ```
