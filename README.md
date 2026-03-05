@@ -4,7 +4,7 @@ This project serves as a production-ready, highly robust template demonstrating 
 
 ## 🏗️ Architecture Overview
 
-This project implements **Clean Architecture** coupled with an **Offline-First (Single Source of Truth)** strategy. 
+This project implements **Clean Architecture** with a streamlined search feature integration. 
 
 ### Core Layers:
 
@@ -13,123 +13,87 @@ This project implements **Clean Architecture** coupled with an **Offline-First (
     - **ViewModel** manages state using `StateFlow` and handles user intents.
     - Reactive pipelines handle debouncing (e.g., waiting 500ms before triggering a search).
 
-2.  **Domain Layer (The Core)**
-    - Completely agnostic of the Android framework.
-    - **Models**: Pure data classes (`Post`).
-    - **Repositories**: Interfaces defining data operations (`PostRepository`).
-    - **Use Cases**: Encapsulate specific business rules (`GetPostsUseCase`).
+2.  **Domain/Feature Layer**
+    - **Models**: Pure data classes (`BookDto`, `SearchResponse`).
+    - **Repositories**: Manages data operations (`SearchRepository`).
 
 3.  **Data Layer**
-    - **Repository Implementation**: Implements the Domain interface.
-    - **Local Source**: Room Database (`PostEntity`). Acts as the Single Source of Truth.
-    - **Remote Source**: Retrofit (`PostDto`).
-    - **Mappers**: Isolate framework models from the domain. Data is mapped from `DTO -> Entity -> Domain Model` before reaching the UI.
+    - **Remote Source**: Ktor Client.
+    - **Mappers/Serialization**: Handled implicitly by `kotlinx-serialization` allowing safe data transformation before hitting the UI.
 
 ## 🛠️ Modern Tech Stack (March 2026)
 
 - **Language**: Kotlin 2.1.0 (K2 Compiler)
 - **UI**: Jetpack Compose (BOM 2026.02.01)
-- **Dependency Injection**: Dagger Hilt
+- **Dependency Injection**: Koin 3.5.3
 - **Asynchronous Flow**: Kotlin Coroutines & Flow
-- **Local Database**: Room 2.7.x (using KSP instead of deprecated kapt)
-- **Network**: Retrofit 2.11.0 + Gson
+- **Network**: Ktor 2.3.8 + Kotlinx Serialization
 - **Build System**: Gradle 8.13.2 Version Catalogs (`libs.versions.toml`)
 
 ## 💡 Key Architectural Patterns to Mention in Interviews:
 
-1.  **Dependency Inversion**: The Data layer depends on the Domain layer via interfaces, not the other way around. This makes the Domain layer easily testable and decoupled from APIs or DBs.
-2.  **Single Source of Truth (SSOT)**: The ViewModel only ever receives data that originated from the local Room database. The network's only job is to update the database.
-3.  **Anti-Corruption Layer (Mappers)**: We never leak JSON models (`PostDto`) or Database models (`PostEntity`) into the UI. If the API changes, only the Mapper needs to change; the UI is completely unaffected.
-4.  **KSP vs KAPT**: Migrating to Kotlin Symbol Processing (KSP) significantly improves build times compared to the legacy `kapt` Java stub generation.
+1.  **Dependency Injection**: Use of Koin allows for lightweight, concise dependency graphs constructed purely via Kotlin DSL without the overhead of annotation processing (KAPT/KSP).
+2.  **Reactive State Management**: The ViewModel implements a robust debounced search pipeline, ensuring network calls are only executed when user input settles, optimizing resource usage.
+3.  **Cross-Platform Ready Network Stack**: Utilizing Ktor over Retrofit makes the networking layer easily portable to Kotlin Multiplatform (KMP) if the project needs to scale to iOS or Desktop.
 
 ## 🚀 How to Run
 1. Open the project in Android Studio.
-2. Wait for Gradle Sync (ensure you are using Java 17+ or 21).
+2. Wait for Gradle Sync (ensure you are using Java 17+).
 3. Run on an Emulator or Physical Device.
 
 ---
 
 # Architecture Diagrams
 
-## 1. Overall System Architecture (Clean Architecture + Hilt)
+## 1. Overall System Architecture (Clean Architecture + Koin)
 
 ```mermaid
 graph TD
     subgraph Presentation_Layer ["1. Presentation Layer (UI)"]
-        UI[PostListScreen]
-        VM[PostViewModel]
+        UI[SearchScreen]
+        VM[SearchViewModel]
     end
 
-    subgraph Domain_Layer ["2. Domain Layer (Pure Kotlin)"]
-        UC[GetPostsUseCase]
-        RepoInt[PostRepository Interface]
-        Model[Post Domain Model]
-    end
-
-    subgraph Data_Layer ["3. Data Layer"]
-        RepoImpl[PostRepositoryImpl]
-        Mappers[PostMapper]
-        DB[(Room DB: PostEntity)]
-        API[Retrofit API: PostDto]
+    subgraph Data_Layer ["2. Data / Domain Layer"]
+        RepoImpl[SearchRepository]
+        API[Ktor API: OpenLibrary]
+        Model[BookDto Model]
     end
 
     %% Dependency Rules (Inwards)
     UI -->|Observes StateFlow| VM
-    VM -->|Executes via Hilt| UC
-    UC -->|Requests Data| RepoInt
-    RepoImpl -.->|Implements| RepoInt
+    VM -->|Injected via Koin| RepoImpl
     
     %% Data Flow
-    RepoImpl -->|Reads/Writes| DB
-    RepoImpl -->|Fetches| API
-    RepoImpl -->|Maps DTO/Entity| Mappers
-    Mappers -->|Returns| Model
+    RepoImpl -->|Fetches (CIO Engine)| API
+    RepoImpl -->|Deserializes to| Model
+    VM -->|Receives| Model
 ```
 
-## 2. Offline-First "Single Source of Truth" Flow
+## 2. Reactive Search Flow
 
 ```mermaid
 sequenceDiagram
     autonumber
-    participant UI as PostListScreen
-    participant VM as PostViewModel
-    participant UC as GetPostsUseCase
-    participant Repo as PostRepositoryImpl
-    participant Mapper as PostMapper
-    participant DB as Room Database
-    participant API as Retrofit API
+    participant UI as SearchScreen
+    participant VM as SearchViewModel
+    participant Repo as SearchRepository
+    participant API as OpenLibrary API
 
     UI->>VM: User types in Search Bar
     Note over VM: debounce(500ms)
-    VM->>UC: invoke(query)
-    UC->>Repo: getPosts()
+    Note over VM: distinctUntilChanged()
+    VM->>UI: emit(SearchUiState.Loading)
     
-    %% Cache Retrieval
-    Repo->>DB: getAllPosts().first()
-    DB-->>Repo: List<PostEntity>
-    Repo->>Mapper: toDomain()
-    Mapper-->>Repo: List<Post>
-    Repo-->>UC: emit(Result.success(localData))
-    UC-->>VM: return flow
-    VM->>UI: Update UI (Show Cached Posts)
-
     %% Network Synchronization
-    Repo->>API: getPosts()
-    API-->>Repo: List<PostDto>
-    Repo->>Mapper: toEntity()
-    Mapper-->>Repo: List<PostEntity>
+    VM->>Repo: searchBooks(query)
+    Repo->>API: GET /search.json?q=query
+    API-->>Repo: JSON Response
+    Note over Repo: kotlinx-serialization mapping
+    Repo-->>VM: List<BookDto>
     
-    Repo->>DB: clearAll() & insertPosts(entities)
-    Note over DB: Update Single Source of Truth
-    
-    %% Fresh Data Retrieval
-    Repo->>DB: getAllPosts().first()
-    DB-->>Repo: New List<PostEntity>
-    Repo->>Mapper: toDomain()
-    Mapper-->>Repo: New List<Post>
-    Repo-->>UC: emit(Result.success(freshData))
-    UC-->>VM: return flow
-    VM->>UI: Update UI (Show Fresh Posts)
+    VM->>UI: emit(SearchUiState.Success)
+    UI->>UI: Render LazyColumn
 ```
 
 ## 3. UI State Pipeline (ViewModel)
@@ -138,8 +102,8 @@ sequenceDiagram
 graph LR
     Input[Search Query StateFlow] --> Debounce[debounce 500ms]
     Debounce --> Distinct[distinctUntilChanged]
-    Distinct --> FlatMap[flatMapLatest: invoke UseCase]
-    FlatMap --> Transform[Fold Result to UiState]
-    Transform --> StateFlow[stateIn]
+    Distinct --> Transform[transformLatest: Fetch Data]
+    Transform --> Emit[Emit Loading/Success/Error]
+    Emit --> StateFlow[stateIn]
     StateFlow --> UI[Compose CollectAsState]
 ```
