@@ -1,52 +1,42 @@
 package com.example.highlevelarch.di
 
-import android.content.Context
-import androidx.room.Room
-import com.example.highlevelarch.data.local.AppDatabase
-import com.example.highlevelarch.data.local.PostDao
-import com.example.highlevelarch.data.remote.PostApiService
-import com.example.highlevelarch.data.repository.PostRepositoryImpl
-import com.example.highlevelarch.domain.repository.PostRepository
-import dagger.Module
-import dagger.Provides
-import dagger.hilt.InstallIn
-import dagger.hilt.android.qualifiers.ApplicationContext
-import dagger.hilt.components.SingletonComponent
-import retrofit2.Retrofit
-import retrofit2.converter.gson.GsonConverterFactory
-import javax.inject.Singleton
+import com.example.highlevelarch.feature.search.SearchRepository
+import com.example.highlevelarch.feature.search.SearchViewModel
+import io.ktor.client.HttpClient
+import io.ktor.client.engine.cio.CIO
+import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.client.plugins.logging.LogLevel
+import io.ktor.client.plugins.logging.Logger
+import io.ktor.client.plugins.logging.Logging
+import io.ktor.serialization.kotlinx.json.json
+import kotlinx.serialization.json.Json
+import org.koin.android.ext.koin.androidContext
+import org.koin.androidx.viewmodel.dsl.viewModel
+import org.koin.dsl.module
 
-@Module
-@InstallIn(SingletonComponent::class)
-object AppModule {
+val appModule = module {
 
-    @Provides
-    @Singleton
-    fun provideAppDatabase(@ApplicationContext context: Context): AppDatabase {
-        return Room.databaseBuilder(
-            context,
-            AppDatabase::class.java,
-            "posts-db"
-        ).build()
+    // 2. Ktor Network Client Configuration
+    single {
+        HttpClient(CIO) {
+            install(ContentNegotiation) {
+                json(Json {
+                    ignoreUnknownKeys = true
+                    isLenient = true
+                })
+            }
+            install(Logging) {
+                logger = object : Logger {
+                    override fun log(message: String) {
+                        println("Ktor: $message")
+                    }
+                }
+                level = LogLevel.ALL
+            }
+        }
     }
 
-    @Provides
-    fun providePostDao(database: AppDatabase): PostDao = database.postDao()
-
-    @Provides
-    @Singleton
-    fun provideRetrofit(): Retrofit {
-        return Retrofit.Builder()
-            .baseUrl(PostApiService.BASE_URL)
-            .addConverterFactory(GsonConverterFactory.create())
-            .build()
-    }
-
-    @Provides
-    @Singleton
-    fun providePostApiService(retrofit: Retrofit): PostApiService = retrofit.create(PostApiService::class.java)
-
-    @Provides
-    @Singleton
-    fun providePostRepository(impl: PostRepositoryImpl): PostRepository = impl
+    // 3. Search Feature 
+    single { SearchRepository(get()) }
+    viewModel { SearchViewModel(get()) }
 }

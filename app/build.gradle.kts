@@ -3,7 +3,7 @@ plugins {
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp) // REPLACED: kapt with ksp
-    alias(libs.plugins.hilt) // ADDED: Hilt
+    alias(libs.plugins.kotlin.serialization)
 }
 
 android {
@@ -60,20 +60,25 @@ dependencies {
     implementation(libs.room.ktx)
     ksp(libs.room.compiler) // REPLACED: kapt with ksp
     
-    // Retrofit
-    implementation(libs.retrofit)
-    implementation(libs.converter.gson)
     
     // Coroutines
     implementation(libs.kotlinx.coroutines.android)
     
+    // Koin
+    implementation(libs.koin.android)
+    implementation(libs.koin.androidx.compose)
+
+    // Ktor & Serialization
+    implementation(libs.ktor.client.core)
+    implementation(libs.ktor.client.cio)
+    implementation(libs.ktor.client.content.negotiation)
+    implementation(libs.ktor.client.logging)
+    implementation(libs.ktor.serialization.kotlinx.json)
+    implementation(libs.kotlinx.serialization.json)
+
     // XML Theme Support
     implementation(libs.material)
     
-    // Hilt DI
-    implementation(libs.hilt.android)
-    ksp(libs.hilt.compiler)
-    implementation(libs.androidx.hilt.navigation.compose)
 
     // Testing
     testImplementation(libs.junit)
