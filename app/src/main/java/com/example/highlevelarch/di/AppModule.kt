@@ -1,6 +1,7 @@
 package com.example.highlevelarch.di
 
-import com.example.highlevelarch.feature.search.SearchRepository
+import com.example.highlevelarch.data.repository.BookRepositoryImpl
+import com.example.highlevelarch.domain.repository.BookRepository
 import com.example.highlevelarch.feature.search.SearchViewModel
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
@@ -37,6 +38,6 @@ val appModule = module {
     }
 
     // 3. Search Feature 
-    single { SearchRepository(get()) }
+    single<BookRepository> { BookRepositoryImpl(get()) }
     viewModel { SearchViewModel(get()) }
 }

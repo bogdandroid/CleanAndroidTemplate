@@ -10,6 +10,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.highlevelarch.domain.model.Book
 import org.koin.androidx.compose.koinViewModel
 
 @Composable
@@ -50,11 +51,11 @@ fun SearchScreen(viewModel: SearchViewModel = koinViewModel()) {
 }
 
 @Composable
-fun BookItem(book: BookDto) {
+fun BookItem(book: Book) {
     Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text(text = book.title, style = MaterialTheme.typography.titleMedium)
-            val authors = book.authorName?.joinToString(", ") ?: "Unknown Author"
+            val authors = book.authors.joinToString(", ").ifEmpty { "Unknown Author" }
             Text(text = "By: $authors", style = MaterialTheme.typography.bodyMedium)
         }
     }

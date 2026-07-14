@@ -2,19 +2,21 @@ package com.example.highlevelarch.feature.search
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.highlevelarch.domain.model.Book
+import com.example.highlevelarch.domain.repository.BookRepository
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.*
 
 sealed class SearchUiState {
     object Idle : SearchUiState()
     object Loading : SearchUiState()
-    data class Success(val results: List<BookDto>) : SearchUiState()
+    data class Success(val results: List<Book>) : SearchUiState()
     data class Error(val message: String) : SearchUiState()
 }
 
-@OptIn(FlowPreview::class)
+@OptIn(FlowPreview::class, kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class SearchViewModel(
-    private val searchRepository: SearchRepository
+    private val bookRepository: BookRepository
 ) : ViewModel() {
 
     private val _searchQuery = MutableStateFlow("")
@@ -29,7 +31,7 @@ class SearchViewModel(
             } else {
                 emit(SearchUiState.Loading)
                 try {
-                    val results = searchRepository.searchBooks(query)
+                    val results = bookRepository.searchBooks(query)
                     emit(SearchUiState.Success(results))
                 } catch (e: Exception) {
                     emit(SearchUiState.Error(e.message ?: "An error occurred"))
